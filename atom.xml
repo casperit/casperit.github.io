@@ -2,13 +2,143 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://casperit.github.io</id>
     <title>我的互联网杂记</title>
-    <updated>2020-12-01T08:40:23.979Z</updated>
+    <updated>2020-12-15T10:54:33.090Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://casperit.github.io"/>
     <link rel="self" href="https://casperit.github.io/atom.xml"/>
     <logo>https://casperit.github.io/images/avatar.png</logo>
     <icon>https://casperit.github.io/favicon.ico</icon>
     <rights>All rights reserved 2020, 我的互联网杂记</rights>
+    <entry>
+        <title type="html"><![CDATA[Hmaster 启动过程]]></title>
+        <id>https://casperit.github.io/post/hmaster-qi-dong-guo-cheng/</id>
+        <link href="https://casperit.github.io/post/hmaster-qi-dong-guo-cheng/">
+        </link>
+        <updated>2020-12-15T10:52:50.000Z</updated>
+        <content type="html"><![CDATA[<h2 id="1-调用链">1.  调用链</h2>
+<pre><code>HMasterCommandLine
+  |
+  |
+   - run               local
+      |                -----
+       - startMaster -|     |
+                      |     |- new MiniZooKeeperCluster.startup //embedded zookeeper cluster
+                      |     |   |- createDir //创建 zk 数据目录
+                      |     |   |- zks = new ZooKeeperServer
+                      |     |   |- new NIOServerCnxn.Factory(clientPort).startup //启动服务
+                      |     |   |        |
+                      |     |   |        |- zks.startdata
+                      |     |   |        |    |
+                      |     |   |        |    |- new ZKDatabase
+                      |     |   |        |    |- loadData // Restore sessions and data
+                      |     |   |        |
+                      |     |   |         - zks.startup
+                      |     |   |             |
+                      |     |   |             |- startSessionTracker
+                      |     |   |             |- setupRequestProcessors
+                      |     |   |                   |
+                      |     |   |                   |- new FinalRequestProcessor
+                      |     |   |                   |- new SyncRequestProcessor.start
+                      |     |   |                   |- new PrepRequestProcessor.start
+                      |     |   |             |- registerJMX //注册JMX mbean
+                      |     |   |
+                      |     |    - waitForServerUp // echo &quot;stat&quot; to assert zk liveless
+                      |     |
+                      |     |
+                      |      - new LocalHBaseCluster().startup //启动包括 Hmaster + RS 的服务
+                      |         |
+                      |         |- masterClass = org.apache.hadoop.hbase.master.HMasterCommandLine$LocalHMaster
+                      |         |-addMaster()
+                      |         |    |- createMasterThread()
+                      |         |    |   |- HMaster.init()
+                      |         |    |   |    |- HregionServer.init()
+                      |         |    |   |    |   |- UserProvider.instantiate(conf)  // 初始化 userprovider
+                      |         |    |   |    |   |- FSUtils.setupShortCircuitRead(this.conf) // short circuit read setup
+                      |         |    |   |    |   |-  createRpcServices() 
+                      |         |    |   |    |   |   | -  MasterRpcServices.init() -&gt;RSRpcServices.init()
+                      |         |    |   |    |   |   |   | - rpcServer = new RpcServer()
+                      |         |    |   |    |   |   |   |   | - rpcSchedulerFactory.create() 
+                      |         |    |   |    |   |   |   |   |   | - callExecutor //初始化读写executor
+                      |         |    |   |    |   |   |   |   |   | - priorityExecutor //初始化priorityExecutor
+                      |         |    |   |    |   |   |   |   |   | - replicationExecutor //初始化replicationExecutor
+                      |         |    |   |    |   |-  new ZooKeeperWatcher() //初始化zk连接和watcher，并create相关的znode
+                      |         |    |   |    |   |-  TableLockManager.createTableLockManager
+                      |         |    |   |    |   |-  new MasterAddressTracker.start() // /hbase/master znode watcher to track master address
+                      |         |    |   |    |   |   | - createBaseZNodes()
+                      |         |    |   |    |   |   |   |   | - RpcServer.init() 
+                      |         |    |   |    |   |   |   |   |   | -  
+                      |         |    |- rpcServer = HBaseRPC.getServer
+                      |         |    |- rpcServer.startThreads
+                      |         |    |     |
+                      |         |    |     |- responder.start()
+                      |         |    |     |- listener.start()
+                      |         |    |      - handlers = new Handler[handlerCount].startall()
+                      |         |    |
+                      |         |     - new ZooKeeperWatcher
+                      |         |
+                      |         |- HRegionServer.newInstance
+                      |         |    |
+                      |         |    |- server = HBaseRPC.getServer
+                      |         |     - run
+                      |         |        |
+                      |         |         - server.startThreads
+                      |         |
+                      |          - start master and rs threads
+                      |
+                      |
+                       ------------ HMaster.constructMaster(HMaster.class, conf）-&gt;start();
+                       distributed
+                      |     |
+                      |     |- new MiniZooKeeperCluster.startup
+                      |     |   |
+                      |     |   |- zks = new ZooKeeperServer
+                      |     |   |- new NIOServerCnxn.Factory(clientPort).startup
+                      |     |   |        |
+                      |     |   |        |- zks.startdata
+                      |     |   |        |    |
+                      |     |   |        |    |- new ZKDatabase
+                      |     |   |        |
+                      |     |   |         - zks.startup
+                      |     |   |             |
+                      |     |   |             |- startSessionTracker
+                      |     |   |              - setupRequestProcessors
+                      |     |   |                   |
+                      |     |   |                   | PrepRequestProcessor -&gt; SyncRequestProcessor -&gt; FinalRequestProcessor
+                      |     |   |                   |
+                      |     |   |                   |- new FinalRequestProcessor
+                      |     |   |                   |- new SyncRequestProcessor
+                      |     |   |                    - new PrepRequestProcessor
+                      |     |   |
+                      |     |    - socket connect clientPort 'stat' to assert zk alive
+                      |     |
+                      |     |
+                      |      - new LocalHBaseCluster().startup
+                      |         |
+                      |         |- HMaster.newInstance
+                      |         |    |
+                      |         |    |- rpcServer = HBaseRPC.getServer
+                      |         |    |- rpcServer.startThreads
+                      |         |    |     |
+                      |         |    |     |- responder.start()
+                      |         |    |     |- listener.start()
+                      |         |    |      - handlers = new Handler[handlerCount].startall()
+                      |         |    |
+                      |         |     - new ZooKeeperWatcher
+                      |         |
+                      |         |- HRegionServer.newInstance
+                      |         |    |
+                      |         |    |- server = HBaseRPC.getServer
+                      |         |     - run
+                      |         |        |
+                      |         |         - server.startThreads
+                      |         |
+                      |          - start master and rs threads
+                      |
+                      |
+                       ------------ HMaster.constructMaster(HMaster.class, conf）-&gt;start();
+</code></pre>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[Hello Gridea]]></title>
         <id>https://casperit.github.io/post/hello-gridea/</id>
