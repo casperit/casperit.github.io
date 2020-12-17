@@ -6,7 +6,7 @@
 
 <title>Hmaster 启动过程 | 我的互联网杂记</title>
 
-<link rel="shortcut icon" href="https://casperit.github.io/favicon.ico?v=1608030191596">
+<link rel="shortcut icon" href="https://casperit.github.io/favicon.ico?v=1608189309213">
 
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css" rel="stylesheet">
 <link rel="stylesheet" href="https://casperit.github.io/styles/main.css">
@@ -179,7 +179,7 @@
             
         </div>
         <div style="text-align: center">
-            <form id="gridea-search-form" style="position: relative" data-update="1608030191596"
+            <form id="gridea-search-form" style="position: relative" data-update="1608189309213"
                 action="/search/index.html">
                 <input class="search-input" autocomplete="off" spellcheck="false" name="q" placeholder="搜索文章" />
                 <i class="fas fa-search gt-c-content-color-first" style="position: absolute; top: 9px; left: 10px;"></i>
@@ -244,7 +244,7 @@
                       |      - new LocalHBaseCluster().startup //启动包括 Hmaster + RS 的服务
                       |         |
                       |         |- masterClass = org.apache.hadoop.hbase.master.HMasterCommandLine$LocalHMaster
-                      |         |-addMaster()
+                      |         |- addMaster()
                       |         |    |- createMasterThread()
                       |         |    |   |- HMaster.init()
                       |         |    |   |    |- HregionServer.init()
@@ -258,19 +258,68 @@
                       |         |    |   |    |   |   |   |   |   | - priorityExecutor //初始化priorityExecutor
                       |         |    |   |    |   |   |   |   |   | - replicationExecutor //初始化replicationExecutor
                       |         |    |   |    |   |-  new ZooKeeperWatcher() //初始化zk连接和watcher，并create相关的znode
-                      |         |    |   |    |   |-  TableLockManager.createTableLockManager
-                      |         |    |   |    |   |-  new MasterAddressTracker.start() // /hbase/master znode watcher to track master address
                       |         |    |   |    |   |   | - createBaseZNodes()
-                      |         |    |   |    |   |   |   |   | - RpcServer.init() 
-                      |         |    |   |    |   |   |   |   |   | -  
-                      |         |    |- rpcServer = HBaseRPC.getServer
-                      |         |    |- rpcServer.startThreads
-                      |         |    |     |
-                      |         |    |     |- responder.start()
-                      |         |    |     |- listener.start()
-                      |         |    |      - handlers = new Handler[handlerCount].startall()
-                      |         |    |
-                      |         |     - new ZooKeeperWatcher
+                      |         |    |   |    |   |-  TableLockManager.createTableLockManager // 基于zk的table-level lock
+                      |         |    |   |    |   |-  new MasterAddressTracker.start() // znode watcher to track master address ( /hbase/master )
+                      |         |    |   |    |   |-  new ClusterStatusTracker.start() // znode watcher to track cluster status ( /hbase/running )
+                      |         |    |   |    |   |-  new ConfigurationManager() // reload configuration on the fly
+                      |         |    |   |    |   |-  rpcServices.start() // start rpc threads
+                      |         |    |   |    |   |    |-  rpcServices.start() // start rpc threads
+                      |         |    |   |    |   |    |    |-  responder.start()
+                      |         |    |   |    |   |    |    |-  listener.start()
+                      |         |    |   |    |   |    |    |-  scheduler.start()
+                      |         |    |   |    |   |    |    |    | -  callExecutor.start
+                      |         |    |   |    |   |    |    |    | -  priorityExecutor.start
+                      |         |    |   |    |   |    |    |    | -  replicationExecutor.start
+                      |         |    |   |    |   |    |-  putUpWebUI() 
+                      |         |    |   |    |   |    |-  new LogRoller()
+                      |         |    |   |    |   |    |-  new ChoreService()
+                      |         |    |   |    | - new ActiveMasterManager() // Handles everything on master-side related to master election. This is a zk listener
+                      |         |    |   |    | - startActiveMasterManager()
+                      |         |    |   |    |   | - MasterAddressTracker.setMasterAddress() // create /hbase/backup-masters/XX
+                      |         |    |   |    |   | -  Threads.setDaemonThreadRunning() // Start a new thread to try to become the active master 
+                      |         |    |   |    |   |    |-   blockUntilBecomingActiveMaster() // try to become master
+                      |         |    |   |    |   |    |  |-   finishActiveMasterInitialization() 
+                      |         |    |   |    |   |    |  |  | - new MasterFileSystem() // class for hmaster to interact with underlying file system
+                      |         |    |   |    |   |    |  |  | - new ServerManager()  // manage info about region servers including online/dead servers and processing the startsup,shutdown and deaths of regionservers
+                      |         |    |   |    |   |    |  |  | - setupClusterConnection
+                      |         |    |   |    |   |    |  |  | - initializeZKBasedSystemTrackers // Initialize all ZK based system trackers
+                      |         |    |   |    |   |    |  |  |  | - getLoadBalancer
+                      |         |    |   |    |   |    |  |  |  | - getRegionNormalizer
+                      |         |    |   |    |   |    |  |  |  | - new AssignmentManager
+                      |         |    |   |    |   |    |  |  |  | - new SnapshotManager
+                      |         |    |   |    |   |    |  |  |  | - new MasterProcedureManagerHost
+                      |         |    |   |    |   |    |  |  | - new MasterCoprocessorHost // master coprocessor class
+                      |         |    |   |    |   |    |  |  | - startServiceThreads // start several master executor service
+                      |         |    |   |    |   |    |  |  |  | - MASTER_OPEN_REGION
+                      |         |    |   |    |   |    |  |  |  | - MASTER_CLOSE_REGION
+                      |         |    |   |    |   |    |  |  |  | - MASTER_SERVER_OPERATIONS
+                      |         |    |   |    |   |    |  |  |  | - MASTER_META_SERVER_OPERATIONS
+                      |         |    |   |    |   |    |  |  |  | - M_LOG_REPLAY_OPS
+                      |         |    |   |    |   |    |  |  |  | - MASTER_SNAPSHOT_OPERATIONS
+                      |         |    |   |    |   |    |  |  |  | - MASTER_TABLE_OPERATIONS
+                      |         |    |   |    |   |    |  |  |  | - new LogCleaner chore
+                      |         |    |   |    |   |    |  |  |  | - new HFileCleaner chore
+                      |         |    |   |    |   |    |  |  |  | - new replicationZKLockCleanerChore chore
+                      |         |    |   |    |   |    |  |  |  | - new replicationZKNodeCleanerChore chore
+                      |         |    |   |    |   |    |  |  | - assignMeta // assign meta table
+                      |         |    |   |    |   |    |  |  | - new ClusterStatusChore()
+                      |         |    |   |    |   |    |  |  | - new BalancerChore()
+                      |         |    |   |    |   |    |  |  | - new RegionNormalizerChore()
+                      |         |    |   |    |   |    |  |  | - new CatalogJanitor()
+                      |         |    |   |    |   |    |  |  | - new PeriodicDoMetrics()
+                      |         |    |   |    |   |    |  |  | - new TableNamespaceManager().start
+                      |         |    |   |    |   |    |  |  | - configurationManager.registerObserver(this.balancer) //enable configuration reload on the fly
+                      |         |    |   |    |   |    |  |  | - configurationManager.registerObserver(this.cleanerPool)
+                      |         |    |   |    |   |    |  |  | - configurationManager.registerObserver(this.hfileCleaner)
+                      |         |    |   |    |   |    |  |  | - configurationManager.registerObserver(this.logCleaner)
+                      |         |    |   |    |   |    |  |  | - initQuotaManager
+                      |         | - addRegionServer ()
+                      |         |    |- createRegionServerThread()
+                      |         |    |   |- HMaster.init()
+                      |         |    |   |    |- HregionServer.init()
+                      
+
                       |         |
                       |         |- HRegionServer.newInstance
                       |         |    |
