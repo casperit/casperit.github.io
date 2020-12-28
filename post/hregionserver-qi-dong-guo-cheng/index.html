@@ -6,7 +6,7 @@
 
 <title>HRegionServer 启动过程 | 我的互联网杂记</title>
 
-<link rel="shortcut icon" href="https://casperit.github.io/favicon.ico?v=1608816689532">
+<link rel="shortcut icon" href="https://casperit.github.io/favicon.ico?v=1609152218447">
 
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css" rel="stylesheet">
 <link rel="stylesheet" href="https://casperit.github.io/styles/main.css">
@@ -179,7 +179,7 @@
             
         </div>
         <div style="text-align: center">
-            <form id="gridea-search-form" style="position: relative" data-update="1608816689532"
+            <form id="gridea-search-form" style="position: relative" data-update="1609152218447"
                 action="/search/index.html">
                 <input class="search-input" autocomplete="off" spellcheck="false" name="q" placeholder="搜索文章" />
                 <i class="fas fa-search gt-c-content-color-first" style="position: absolute; top: 9px; left: 10px;"></i>
@@ -212,93 +212,42 @@
                 </div>
                 <div class="post-content">
                     <h2 id="1-调用链">1.  调用链</h2>
-<pre><code>HRegionServerCommandLine
+<pre><code>HRegionServerCommandLine.start()
   |
   |
-   - start    local
-      |         -----
-      | -      silently exit
+       local
+       -----
+      |  silently exit
                 
-              cluster
-               -----  
+        cluster
+        -----  
       | - HRegionServer.constructRegionServer()
       |   |- UserProvider.instantiate(conf)  // 初始化 userprovider
       |   |- FSUtils.setupShortCircuitRead(this.conf) // short circuit read setup
-      |   |-  createRpcServices() 
+      |   |- createRpcServices() 
       |   |   | -  MasterRpcServices.init() -&gt;RSRpcServices.init()
       |   |   |   | - rpcServer = new RpcServer()
       |   |   |   | - rpcSchedulerFactory.create() 
       |   |   |   |   |   | - callExecutor //初始化读写executor
       |   |   |   |   |   | - priorityExecutor //初始化priorityExecutor
       |   |   |   |   |   | - replicationExecutor //初始化replicationExecutor
-                      |         |    |   |    |   |-  new ZooKeeperWatcher() //初始化zk连接和watcher，并create相关的znode
-                      |         |    |   |    |   |   | - createBaseZNodes()
-                      |         |    |   |    |   |-  TableLockManager.createTableLockManager // 基于zk的table-level lock
-                      |         |    |   |    |   |-  new MasterAddressTracker.start() // znode watcher to track master address ( /hbase/master )
-                      |         |    |   |    |   |-  new ClusterStatusTracker.start() // znode watcher to track cluster status ( /hbase/running )
-                      |         |    |   |    |   |-  new ConfigurationManager() // reload configuration on the fly
-                      |         |    |   |    |   |-  rpcServices.start() // start rpc threads
-                      |         |    |   |    |   |    |-  rpcServices.start() // start rpc threads
-                      |         |    |   |    |   |    |    |-  responder.start()
-                      |         |    |   |    |   |    |    |-  listener.start()
-                      |         |    |   |    |   |    |    |-  scheduler.start()
-                      |         |    |   |    |   |    |    |    | -  callExecutor.start
-                      |         |    |   |    |   |    |    |    | -  priorityExecutor.start
-                      |         |    |   |    |   |    |    |    | -  replicationExecutor.start
-                      |         |    |   |    |   |    |-  putUpWebUI() 
-                      |         |    |   |    |   |    |-  new LogRoller()
-                      |         |    |   |    |   |    |-  new ChoreService()
-                      |         |    |   |    | - new ActiveMasterManager() // Handles everything on master-side related to master election. This is a zk listener
-                      |         |    |   |    | - startActiveMasterManager()
-                      |         |    |   |    |   | - MasterAddressTracker.setMasterAddress() // create /hbase/backup-masters/XX
-                      |         |    |   |    |   | -  Threads.setDaemonThreadRunning() // Start a new thread to try to become the active master 
-                      |         |    |   |    |   |    |-   blockUntilBecomingActiveMaster() // try to become master
-                      |         |    |   |    |   |    |  |-   finishActiveMasterInitialization() 
-                      |         |    |   |    |   |    |  |  | - new MasterFileSystem() // class for hmaster to interact with underlying file system
-                      |         |    |   |    |   |    |  |  | - new ServerManager()  // manage info about region servers including online/dead servers and processing the startsup,shutdown and deaths of regionservers
-                      |         |    |   |    |   |    |  |  | - setupClusterConnection
-                      |         |    |   |    |   |    |  |  | - initializeZKBasedSystemTrackers // Initialize all ZK based system trackers
-                      |         |    |   |    |   |    |  |  |  | - getLoadBalancer
-                      |         |    |   |    |   |    |  |  |  | - getRegionNormalizer
-                      |         |    |   |    |   |    |  |  |  | - new AssignmentManager
-                      |         |    |   |    |   |    |  |  |  | - new SnapshotManager
-                      |         |    |   |    |   |    |  |  |  | - new MasterProcedureManagerHost
-                      |         |    |   |    |   |    |  |  | - new MasterCoprocessorHost // master coprocessor class
-                      |         |    |   |    |   |    |  |  | - startServiceThreads // start several master executor service
-                      |         |    |   |    |   |    |  |  |  | - MASTER_OPEN_REGION
-                      |         |    |   |    |   |    |  |  |  | - MASTER_CLOSE_REGION
-                      |         |    |   |    |   |    |  |  |  | - MASTER_SERVER_OPERATIONS
-                      |         |    |   |    |   |    |  |  |  | - MASTER_META_SERVER_OPERATIONS
-                      |         |    |   |    |   |    |  |  |  | - M_LOG_REPLAY_OPS
-                      |         |    |   |    |   |    |  |  |  | - MASTER_SNAPSHOT_OPERATIONS
-                      |         |    |   |    |   |    |  |  |  | - MASTER_TABLE_OPERATIONS
-                      |         |    |   |    |   |    |  |  |  | - new LogCleaner chore
-                      |         |    |   |    |   |    |  |  |  | - new HFileCleaner chore
-                      |         |    |   |    |   |    |  |  |  | - new replicationZKLockCleanerChore chore
-                      |         |    |   |    |   |    |  |  |  | - new replicationZKNodeCleanerChore chore
-                      |         |    |   |    |   |    |  |  | - assignMeta // assign meta table
-                      |         |    |   |    |   |    |  |  | - new ClusterStatusChore()
-                      |         |    |   |    |   |    |  |  | - new BalancerChore()
-                      |         |    |   |    |   |    |  |  | - new RegionNormalizerChore()
-                      |         |    |   |    |   |    |  |  | - new CatalogJanitor()
-                      |         |    |   |    |   |    |  |  | - new PeriodicDoMetrics()
-                      |         |    |   |    |   |    |  |  | - new TableNamespaceManager().start
-                      |         |    |   |    |   |    |  |  | - configurationManager.registerObserver(this.balancer) //enable configuration reload on the fly
-                      |         |    |   |    |   |    |  |  | - configurationManager.registerObserver(this.cleanerPool)
-                      |         |    |   |    |   |    |  |  | - configurationManager.registerObserver(this.hfileCleaner)
-                      |         |    |   |    |   |    |  |  | - configurationManager.registerObserver(this.logCleaner)
-                      |         |    |   |    |   |    |  |  | - initQuotaManager
-                      |         | - RegionServerClass = org.apache.hadoop.hbase.regionserver.HRegionServer
-                      |         | - addRegionServer ()
-                      |         |    |- createRegionServerThread()
-                      |         |    |   |    |- HregionServer.init()
-                      |      - waitOnMasterThreads 
-                      distributed
-                      --------
-                      |     - HMaster.constructMaster()
-                      |         |
-                      |         |- masterClass = org.apache.hadoop.hbase.master.HMaster
-                      |         |    |- HMaster.init()
+      |   |-  new ZooKeeperWatcher() //初始化zk连接和watcher，并create相关的znode
+      |   |   | - createBaseZNodes()
+      |   |-  TableLockManager.createTableLockManager // 基于zk的table-level lock
+      |   |-  new MasterAddressTracker.start() // znode watcher to track master address ( /hbase/master )
+      |   |-  new ClusterStatusTracker.start() // znode watcher to track cluster status ( /hbase/running )
+      |   |-  new ConfigurationManager() // reload configuration on the fly
+      |   |-  rpcServices.start() // start rpc threads
+      |   |    |-  rpcServices.start() // start rpc threads
+      |   |    |    |-  responder.start()
+      |   |    |    |-  listener.start()
+      |   |    |    |-  scheduler.start()
+      |   |    |    |    | -  callExecutor.start
+      |   |    |    |    | -  priorityExecutor.start
+      |   |    |    |    | -  replicationExecutor.start
+      |    |   |    |-  putUpWebUI() 
+      |    |   |    |-  new LogRoller()
+      |    |   |    |-  new ChoreService()
 </code></pre>
 <h2 id="2-流程详解">2.  流程详解</h2>
 <ol>
@@ -336,7 +285,7 @@ try {
 }
 return 0;
 </code></pre>
-<ol>
+<ol start="2">
 <li>HRegionServer 实例init</li>
 </ol>
 <pre><code class="language-java">org.apache.hadoop.hbase.regionserver.HRegionServer#HRegionServer
@@ -407,7 +356,7 @@ this.compactedFileDischarger =
     new CompactedHFilesDischarger(cleanerInterval, (Stoppable)this, (RegionServerServices)this);
 choreService.scheduleChore(compactedFileDischarger);
 </code></pre>
-<ol>
+<ol start="3">
 <li>HRegionServer start: 具体执行的就是对应类的run方法</li>
 </ol>
 <pre><code class="language-java">org.apache.hadoop.hbase.regionserver.HRegionServer#run
@@ -415,7 +364,7 @@ choreService.scheduleChore(compactedFileDischarger);
 {
 try {
   // Do pre-registration initializations; zookeeper, lease threads, etc.
-  preRegistrationInitialization();
+  preRegistrationInitialization();  // 在向master注册前，需要进行初始化，详细参考第四点
 } catch (Throwable e) {
   abort(&quot;Fatal exception during initialization&quot;, e);
 }
@@ -430,13 +379,13 @@ try {
 
   // Try and register with the Master; tell it we are here.  Break if
   // server is stopped or the clusterup flag is down or hdfs went wacky.
-  while (keepLooping()) {
-    RegionServerStartupResponse w = reportForDuty();
+  while (keepLooping()) {                    
+    RegionServerStartupResponse w = reportForDuty();  // 建立与master的连接，并从maste端获取配置（key-value的map）
     if (w == null) {
       LOG.warn(&quot;reportForDuty failed; sleeping and then retrying.&quot;);
       this.sleeper.sleep();
     } else {
-      handleReportForDutyResponse(w);
+      handleReportForDutyResponse(w);  // Run init. Sets up wal and starts up all server threads
       break;
     }
   }
@@ -627,11 +576,58 @@ LOG.info(&quot;stopping server &quot; + this.serverName +
   &quot;; zookeeper connection closed.&quot;);
 
 LOG.info(Thread.currentThread().getName() + &quot; exiting&quot;);
+}
+</code></pre>
+<ol start="4">
+<li>preRegistrationInitialization()</li>
+</ol>
+<pre><code class="language-java">org.apache.hadoop.hbase.regionserver.HRegionServer#initializeThreads
+
+{
+this.cacheFlusher = new MemStoreFlusher(conf, this);  // memstoreflush thread
+
+this.compactSplitThread = new CompactSplitThread(this); // compaction thread
+
+// Background thread to check for compactions; needed if region has not gotten updates
+// in a while. It will take care of not checking too frequently on store-by-store basis.
+this.compactionChecker = new CompactionChecker(this, this.compactionCheckFrequency, this);
+this.periodicFlusher = new PeriodicMemstoreFlusher(this.flushCheckFrequency, this);
+this.leases = new Leases(this.threadWakeFrequency); // Lease manager
+
+// Create the thread to clean the moved regions list
+movedRegionsCleaner = MovedRegionsCleaner.create(this);
+
+if (this.nonceManager != null) {
+  // Create the scheduled chore that cleans up nonces.
+  nonceManagerChore = this.nonceManager.createCleanupScheduledChore(this);
+}
+
+// Setup the Quota Manager
+rsQuotaManager = new RegionServerQuotaManager(this);
+
+// Setup RPC client for master communication
+rpcClient = RpcClientFactory.createClient(conf, clusterId, new InetSocketAddress(
+    rpcServices.isa.getAddress(), 0), clusterConnection.getConnectionMetrics());
+
+boolean onlyMetaRefresh = false;
+int storefileRefreshPeriod = conf.getInt(storefilerefresher thread
+    StorefileRefresherChore.REGIONSERVER_STOREFILE_REFRESH_PERIOD
+  , StorefileRefresherChore.DEFAULT_REGIONSERVER_STOREFILE_REFRESH_PERIOD);
+if (storefileRefreshPeriod == 0) {
+  storefileRefreshPeriod = conf.getInt(
+      StorefileRefresherChore.REGIONSERVER_META_STOREFILE_REFRESH_PERIOD,
+      StorefileRefresherChore.DEFAULT_REGIONSERVER_STOREFILE_REFRESH_PERIOD);
+  onlyMetaRefresh = true;
+}
+if (storefileRefreshPeriod &gt; 0) {
+  this.storefileRefresher = new StorefileRefresherChore(storefileRefreshPeriod,
+      onlyMetaRefresh, this, this); // storefileRefresh chore线程
+}
+registerConfigurationObservers(); // 配置 reload 逻辑
+}
 </code></pre>
 </li>
 </ol>
-<p>}<br>
-```</p>
 
                 </div>
             </article>
