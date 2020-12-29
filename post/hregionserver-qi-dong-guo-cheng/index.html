@@ -6,7 +6,7 @@
 
 <title>HRegionServer 启动过程 | 我的互联网杂记</title>
 
-<link rel="shortcut icon" href="https://casperit.github.io/favicon.ico?v=1609152218447">
+<link rel="shortcut icon" href="https://casperit.github.io/favicon.ico?v=1609248973287">
 
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css" rel="stylesheet">
 <link rel="stylesheet" href="https://casperit.github.io/styles/main.css">
@@ -179,7 +179,7 @@
             
         </div>
         <div style="text-align: center">
-            <form id="gridea-search-form" style="position: relative" data-update="1609152218447"
+            <form id="gridea-search-form" style="position: relative" data-update="1609248973287"
                 action="/search/index.html">
                 <input class="search-input" autocomplete="off" spellcheck="false" name="q" placeholder="搜索文章" />
                 <i class="fas fa-search gt-c-content-color-first" style="position: absolute; top: 9px; left: 10px;"></i>
@@ -248,6 +248,20 @@
       |    |   |    |-  putUpWebUI() 
       |    |   |    |-  new LogRoller()
       |    |   |    |-  new ChoreService()
+      | - HRegionServer.start()
+      |    | - HRegionServer.run()  // org.apache.hadoop.hbase.regionserver.HRegionServer#run
+      |    | - HRegionServer.run()
+      |   |    |-  preRegistrationInitialization // 在尝试与maste注册前，启动相关的服务
+      |    |   |    |-  setupClusterConnection()
+      |    |   |    |-  new HealthCheckChore()
+      |    |   |    |-  initializeThreads() //初始化像flushThread等线程
+      |   |    |-  reportForDuty() // 与master同步信息，并获取master端最新的配置
+      |   |    |-  handleReportForDutyResponse() // 在获取到maste端的配置信息后，进行HS初始化操作，并启动相关Threads(ExecutorService,replicationHandler等等)
+      |   |    |-  rsQuotaManager.start // 启动 QuotaManager
+      |   |    |- while (!isStopped() &amp;&amp; isHealthy()) // main thread run loop
+      |   |    |    |- tryRegionServerReport // 如果server存活，那么定期与 master 同步状态
+      |   |    |    |- 如果失败，则会关闭之前启动的相关服务
+
 </code></pre>
 <h2 id="2-流程详解">2.  流程详解</h2>
 <ol>
@@ -401,7 +415,7 @@ try {
     rsQuotaManager.start(getRpcServer().getScheduler());
   }
 
-  // We registered with the Master.  Go into run mode.
+  // 与master注册成功，开始进行循环
   long lastMsg = System.currentTimeMillis();
   long oldRequestCount = -1;
   // The main run loop.
@@ -448,6 +462,8 @@ try {
     abort(prefix + t.getMessage(), t);
   }
 }
+
+// 当进程结束后，进行清理工作
 // Run shutdown.
 if (mxBean != null) {
   MBeanUtil.unregisterMBean(mxBean);
@@ -578,7 +594,7 @@ LOG.info(&quot;stopping server &quot; + this.serverName +
 LOG.info(Thread.currentThread().getName() + &quot; exiting&quot;);
 }
 </code></pre>
-<ol start="4">
+<ol>
 <li>preRegistrationInitialization()</li>
 </ol>
 <pre><code class="language-java">org.apache.hadoop.hbase.regionserver.HRegionServer#initializeThreads
